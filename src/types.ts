@@ -279,6 +279,7 @@ export interface FirebaseConfig {
   messagingSenderId?: string;
   appId: string;
   measurementId?: string;
+  firestoreDatabaseId?: string;
 }
 
 

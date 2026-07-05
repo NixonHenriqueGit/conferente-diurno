@@ -9,13 +9,13 @@ import { AppStore } from "./store";
 
 const DEFAULT_FIREBASE_CONFIG = {
   projectId: "armazemfacil-b2292",
-  appId: "1:688234941301:web:153e2ad3f634379fe3213c",
-  apiKey: "AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE",
+  appId: "1:688234941301:web:afd418d38c7d7750e3213c",
+  apiKey: "AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE",
   authDomain: "armazemfacil-b2292.firebaseapp.com",
-  firestoreDatabaseId: "(default)",
-  storageBucket: "armazemfacil-b2292.appspot.com",
+  firestoreDatabaseId: "ai-studio-confernciadiurna-5f5424bc-4a89-46f1-b67f-c5698b700c5e",
+  storageBucket: "armazemfacil-b2292.firebasestorage.app",
   messagingSenderId: "688234941301",
-  measurementId: "G-6HFDEKWVDB"
+  measurementId: ""
 };
 
 let appInstance: any = null;
@@ -58,7 +58,9 @@ export function getFirebaseClient() {
       });
     }
 
-    firestoreInstance = getFirestore(appInstance);
+    // Crucial: Passar o firestoreDatabaseId para o getFirestore para que o cliente use a mesma base personalizada do servidor
+    const dbId = config.firestoreDatabaseId || "(default)";
+    firestoreInstance = getFirestore(appInstance, dbId);
     lastUsedConfigStr = configStr;
     return firestoreInstance;
   } catch (err) {
