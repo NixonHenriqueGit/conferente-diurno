@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import { promises as fs } from "fs";
 
 import { initializeApp, getApps, getApp, deleteApp } from "firebase/app";
-import { initializeFirestore, doc, getDoc, setDoc, getDocFromServer, setLogLevel, collection, getDocs } from "firebase/firestore";
+import { initializeFirestore, doc, getDoc, setDoc, getDocFromServer, setLogLevel, collection, getDocs, onSnapshot } from "firebase/firestore";
 
 dotenv.config();
 
@@ -246,6 +246,68 @@ function generateAuditLogs(oldDb: any, newDb: any, user: any) {
   return logs;
 }
 
+// Keep track of active Firestore real-time listeners on the server to prevent duplicate subscriptions on configuration updates
+let firestoreListeners: (() => void)[] = [];
+
+// Helper to establish real-time Firestore listeners on the server side
+function setupFirestoreListeners() {
+  if (!firestoreDb) return;
+  
+  // Clean up any previous listeners to prevent memory leaks and redundant file writes
+  if (firestoreListeners.length > 0) {
+    console.log("[Firestore Listener] Removendo escutadores em tempo real anteriores...");
+    firestoreListeners.forEach(unsub => {
+      try {
+        unsub();
+      } catch (err) {
+        // ignore
+      }
+    });
+    firestoreListeners = [];
+  }
+
+  console.log("[Firestore Listener] Iniciando escutas real-time do Firestore no servidor para todas as tabelas...");
+  DB_KEYS.forEach((key) => {
+    const docRef = doc(firestoreDb, "app_state", key);
+    const unsub = onSnapshot(docRef, async (snap) => {
+      if (snap.exists()) {
+        const incoming = snap.data().data || [];
+        
+        // Skip updating if the incoming Firestore data is identical to the in-memory cache to prevent infinite loops
+        if (JSON.stringify(dbCache?.[key]) !== JSON.stringify(incoming)) {
+          console.log(`[Firestore Listener] Atualização externa detectada no Firestore para a chave '${key}'. Sincronizando...`);
+          if (!dbCache) dbCache = {};
+          dbCache[key] = incoming;
+          
+          // Persist the consolidated state locally to keep the container disk cache warm
+          try {
+            const tempPath = `${DB_FILE_PATH}.tmp`;
+            await fs.writeFile(tempPath, JSON.stringify(dbCache, null, 2), "utf-8");
+            await fs.rename(tempPath, DB_FILE_PATH);
+          } catch (writeErr: any) {
+            console.error(`[Firestore Listener] Erro ao salvar estado local para '${key}':`, writeErr?.message || writeErr);
+          }
+          
+          // Instantly broadcast the updated state to all connected browser clients via Server-Sent Events (SSE)
+          if (clients && clients.length > 0) {
+            const payloadStr = JSON.stringify({ type: "update", db: dbCache });
+            clients.forEach(client => {
+              try {
+                client.res.write(`data: ${payloadStr}\n\n`);
+              } catch (err) {
+                // Client connection closed; ignore
+              }
+            });
+          }
+        }
+      }
+    }, (err) => {
+      console.error(`[Firestore Listener] Erro no canal de escuta para a chave '${key}':`, err?.message || err);
+    });
+    firestoreListeners.push(unsub);
+  });
+}
+
 // Helper to read DB from file/Firestore once on startup and establish a robust cache
 async function loadDatabaseOnStartup() {
   await initFirebase();
@@ -271,8 +333,16 @@ async function loadDatabaseOnStartup() {
           try {
             const snap = await getDoc(docRef);
             if (snap.exists()) {
-              dbCache[key] = snap.data().data || [];
-              updatedKeys.add(key);
+              const firestoreData = snap.data().data || [];
+              // SAFEGUARD: Se o Firestore retornar um array vazio mas o banco local contiver dados ativos,
+              // preservamos os dados locais do container para evitar perda de dados por inicialização incorreta do Firestore.
+              if (firestoreData.length === 0 && localDb[key] && localDb[key].length > 0) {
+                console.log(`[Startup Safeguard] A chave '${key}' está vazia no Firestore mas contém ${localDb[key].length} registros locais. Preservando banco local e agendando gravação na nuvem.`);
+                absentKeys.add(key); // Marca como ausente para que o servidor salve os registros locais de volta no Firestore
+              } else {
+                dbCache[key] = firestoreData;
+                updatedKeys.add(key);
+              }
             } else {
               absentKeys.add(key);
             }
@@ -322,6 +392,7 @@ async function loadDatabaseOnStartup() {
         console.log("Cache físico do container atualizado com os dados do Firestore com sucesso.");
         
         firestoreLoadedSuccessfully = true;
+        setupFirestoreListeners(); // Ativa os escutadores real-time no servidor
         return; // Success!
       } catch (err) {
         console.error(`Falha na tentativa de carregar Firestore (Restam ${retries - 1} tentativas):`, err);

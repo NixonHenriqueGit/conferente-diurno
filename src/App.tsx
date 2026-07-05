@@ -12,7 +12,7 @@ import PlatformManual from './components/PlatformManual';
 import AIAgentChat from './components/AIAgentChat';
 import FirebaseConfigView from './components/FirebaseConfigView';
 import { ClipboardCheck, ShieldCheck, BarChart3, AlertCircle, Bell, CheckCircle2 } from 'lucide-react';
-import { subscribeToFirestore, writeToFirestoreDirectly } from './firebaseClient';
+// Client-side Firebase imports removed to prefer secure server-side proxy
 
 export default function App() {
   const lastWriteTime = useRef<number>(0);
@@ -137,19 +137,7 @@ export default function App() {
           console.error('Failed to push batched database updates to server:', err);
         }
 
-        // 2. Direct-to-Firestore client-side sync (guarantees real-time work on GitHub Pages / static hosting)
-        try {
-          for (const key of payloadKeys) {
-            let actualKey = key;
-            if (key === 'activeAssets') actualKey = 'activeAssets'; // matches the map
-            const valueToWrite = payload[key];
-            if (Array.isArray(valueToWrite)) {
-              await writeToFirestoreDirectly(actualKey, valueToWrite);
-            }
-          }
-        } catch (fErr) {
-          console.warn("Direct-to-Firestore client-side push failed:", fErr);
-        }
+        // Direct client-side Firestore push removed to prefer safe server-side database serialization and prevent race conditions
       }
     }, 50);
   };
@@ -298,11 +286,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // 4. Setup real-time database updates via Firestore (preferred) or Server-Sent Events (SSE fallback)
+  // 4. Setup real-time database updates via Server-Sent Events (SSE)
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimeout: any = null;
-    let unsubscribeFirestore: (() => void) | null = null;
 
     const handleDatabaseUpdate = (key: string, data: any[]) => {
       // Skip applying updates if there was a recent local write on this client to avoid race conditions
@@ -370,18 +357,7 @@ export default function App() {
     };
 
     const startSync = () => {
-      try {
-        console.log("Tentando conectar diretamente ao Firebase Firestore para sincronização em tempo real...");
-        unsubscribeFirestore = subscribeToFirestore((key, data) => {
-          handleDatabaseUpdate(key, data);
-        });
-        console.log("Inscrito com sucesso no canal de sincronização direta do Firebase Firestore.");
-        return; // Success, don't need SSE fallback
-      } catch (fErr) {
-        console.warn("Sincronização direta com Firestore falhou ou não configurada. Ativando fallback SSE...", fErr);
-      }
-
-      // Fallback: SSE connection
+      // Primary and robust real-time synchronization via SSE (Server-Sent Events)
       console.log("Conectando ao canal de sincronização em tempo real por servidor (SSE)...");
       eventSource = new EventSource('/api/db/events');
 
@@ -442,9 +418,6 @@ export default function App() {
     startSync();
 
     return () => {
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
-      }
       if (eventSource) {
         eventSource.close();
       }
