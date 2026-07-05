@@ -63,7 +63,7 @@ const FIREBASE_CONFIG_PATH = path.join(process.cwd(), "firebase-applet-config.js
 const DEFAULT_FIREBASE_CONFIG = {
   projectId: "armazemfacil-b2292",
   appId: "1:688234941301:web:153e2ad3f634379fe3213c",
-  apiKey: "AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE",
+  apiKey: "AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE",
   authDomain: "armazemfacil-b2292.firebaseapp.com",
   firestoreDatabaseId: "(default)",
   storageBucket: "armazemfacil-b2292.appspot.com",

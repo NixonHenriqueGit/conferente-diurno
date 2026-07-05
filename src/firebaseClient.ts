@@ -9,13 +9,13 @@ import { AppStore } from "./store";
 
 const DEFAULT_FIREBASE_CONFIG = {
   projectId: "armazemfacil-b2292",
-  appId: "1:688234941301:web:afd418d38c7d7750e3213c",
+  appId: "1:688234941301:web:153e2ad3f634379fe3213c",
   apiKey: "AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE",
   authDomain: "armazemfacil-b2292.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-confernciadiurna-5f5424bc-4a89-46f1-b67f-c5698b700c5e",
-  storageBucket: "armazemfacil-b2292.firebasestorage.app",
+  firestoreDatabaseId: "(default)",
+  storageBucket: "armazemfacil-b2292.appspot.com",
   messagingSenderId: "688234941301",
-  measurementId: ""
+  measurementId: "G-6HFDEKWVDB"
 };
 
 let appInstance: any = null;

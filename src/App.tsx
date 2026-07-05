@@ -203,8 +203,12 @@ export default function App() {
             console.log("Firebase configuration successfully synchronized from server on startup.");
           }
         }
-      } catch (err) {
-        console.error('Error fetching Firebase config from server on startup:', err);
+      } catch (err: any) {
+        if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message?.includes('fetch'))) {
+          console.warn('Configuração do Firebase temporariamente inacessível (servidor offline/reiniciando)...');
+        } else {
+          console.error('Error fetching Firebase config from server on startup:', err);
+        }
       }
     };
     fetchServerFirebaseConfig();
@@ -249,8 +253,12 @@ export default function App() {
             console.log("Banco de dados do servidor está em branco ou indisponível. Ignorando auto-sobreposição para segurança.");
           }
         }
-      } catch (err) {
-        console.error('Error fetching server database:', err);
+      } catch (err: any) {
+        if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message?.includes('fetch'))) {
+          console.warn('Banco de dados temporariamente offline ou reiniciando (startup)...');
+        } else {
+          console.error('Error fetching server database:', err);
+        }
       }
     };
 
@@ -296,8 +304,12 @@ export default function App() {
             if (db.firebaseConfig !== undefined) { setFirebaseConfig(db.firebaseConfig); AppStore.setFirebaseConfig(db.firebaseConfig); }
           }
         }
-      } catch (err) {
-        console.error('Polling database sync error:', err);
+      } catch (err: any) {
+        if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message?.includes('fetch'))) {
+          console.warn('Banco de dados temporariamente offline ou reiniciando (polling)...');
+        } else {
+          console.error('Polling database sync error:', err);
+        }
       }
     }, 20000);
 

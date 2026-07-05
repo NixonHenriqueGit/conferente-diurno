@@ -14,7 +14,7 @@ interface FirebaseConfig {
 
 export default function FirebaseManagerView() {
   const [config, setConfig] = useState<FirebaseConfig>({
-    apiKey: 'AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE',
+    apiKey: 'AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE',
     authDomain: 'armazemfacil-b2292.firebaseapp.com',
     projectId: 'armazemfacil-b2292',
     storageBucket: 'armazemfacil-b2292.appspot.com',
@@ -392,7 +392,7 @@ export default function FirebaseManagerView() {
                   type="button"
                   onClick={() => {
                     setConfig({
-                      apiKey: 'AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE',
+                      apiKey: 'AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE',
                       authDomain: 'armazemfacil-b2292.firebaseapp.com',
                       projectId: 'armazemfacil-b2292',
                       storageBucket: 'armazemfacil-b2292.appspot.com',

@@ -8,7 +8,7 @@ interface FirebaseConfigViewProps {
 }
 
 export default function FirebaseConfigView({ initialConfig, onSaveConfig }: FirebaseConfigViewProps) {
-  const [apiKey, setApiKey] = useState('AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE');
+  const [apiKey, setApiKey] = useState('AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE');
   const [authDomain, setAuthDomain] = useState('armazemfacil-b2292.firebaseapp.com');
   const [projectId, setProjectId] = useState('armazemfacil-b2292');
   const [storageBucket, setStorageBucket] = useState('armazemfacil-b2292.appspot.com');
@@ -22,7 +22,7 @@ export default function FirebaseConfigView({ initialConfig, onSaveConfig }: Fire
   // Populate state on mount or when initialConfig changes
   useEffect(() => {
     if (initialConfig) {
-      setApiKey(initialConfig.apiKey || 'AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE');
+      setApiKey(initialConfig.apiKey || 'AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE');
       setAuthDomain(initialConfig.authDomain || 'armazemfacil-b2292.firebaseapp.com');
       setProjectId(initialConfig.projectId || 'armazemfacil-b2292');
       setStorageBucket(initialConfig.storageBucket || 'armazemfacil-b2292.appspot.com');
@@ -33,7 +33,7 @@ export default function FirebaseConfigView({ initialConfig, onSaveConfig }: Fire
   }, [initialConfig]);
 
   const handleRestoreDefault = () => {
-    setApiKey('AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE');
+    setApiKey('AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE');
     setAuthDomain('armazemfacil-b2292.firebaseapp.com');
     setProjectId('armazemfacil-b2292');
     setStorageBucket('armazemfacil-b2292.appspot.com');
