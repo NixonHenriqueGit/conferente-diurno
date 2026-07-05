@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps, getApp, deleteApp } from "firebase/app";
 import { 
   getFirestore, 
   doc, 
@@ -20,17 +20,34 @@ const DEFAULT_FIREBASE_CONFIG = {
 
 let appInstance: any = null;
 let firestoreInstance: any = null;
+let lastUsedConfigStr = "";
 
 export function getFirebaseClient() {
-  if (firestoreInstance) return firestoreInstance;
+  const config = AppStore.getFirebaseConfig() || DEFAULT_FIREBASE_CONFIG;
+  const configStr = JSON.stringify(config);
+
+  if (firestoreInstance && lastUsedConfigStr === configStr) {
+    return firestoreInstance;
+  }
 
   try {
-    const config = AppStore.getFirebaseConfig() || DEFAULT_FIREBASE_CONFIG;
+    console.log("[FirebaseClient] Inicializando ou atualizando cliente Firebase...");
     
+    // Se a configuração mudou, limpamos a instância anterior para forçar recarga
+    if (lastUsedConfigStr && lastUsedConfigStr !== configStr) {
+      console.log("[FirebaseClient] Configuração do Firebase mudou. Limpando aplicativos antigos...");
+      const apps = getApps();
+      for (const app of apps) {
+        deleteApp(app).catch(err => console.warn("[FirebaseClient] Erro ao deletar app antigo:", err));
+      }
+      appInstance = null;
+      firestoreInstance = null;
+    }
+
     const apps = getApps();
-    if (apps.length > 0) {
+    if (apps.length > 0 && !appInstance) {
       appInstance = getApp();
-    } else {
+    } else if (!appInstance) {
       appInstance = initializeApp({
         apiKey: config.apiKey,
         authDomain: config.authDomain,
@@ -42,6 +59,7 @@ export function getFirebaseClient() {
     }
 
     firestoreInstance = getFirestore(appInstance);
+    lastUsedConfigStr = configStr;
     return firestoreInstance;
   } catch (err) {
     console.error("Erro ao inicializar Firebase no cliente:", err);

@@ -185,6 +185,24 @@ export default function App() {
     setAuditLogs(AppStore.getAuditLogs());
     setFirebaseConfig(AppStore.getFirebaseConfig());
 
+    // Fetch Firebase Config from server to ensure perfect sync for all roles (including conferentes)
+    const fetchServerFirebaseConfig = async () => {
+      try {
+        const res = await fetch('/api/firebase/config');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.config) {
+            setFirebaseConfig(data.config);
+            AppStore.setFirebaseConfig(data.config);
+            console.log("Firebase configuration successfully synchronized from server on startup.");
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching Firebase config from server on startup:', err);
+      }
+    };
+    fetchServerFirebaseConfig();
+
     // Check persistent user ID if authenticated
     const savedUserId = localStorage.getItem('logiroute_authenticated_user_id');
     const defaultUser = loadedUsers.find(u => u.id === savedUserId) || loadedUsers.find(u => u.id === 'usr_1') || loadedUsers[0];
@@ -434,7 +452,7 @@ export default function App() {
         clearTimeout(reconnectTimeout);
       }
     };
-  }, []);
+  }, [firebaseConfig]);
 
   // Real-time synchronization across tabs of the SAME browser
   useEffect(() => {
