@@ -12,6 +12,7 @@ import PlatformManual from './components/PlatformManual';
 import AIAgentChat from './components/AIAgentChat';
 import FirebaseConfigView from './components/FirebaseConfigView';
 import { ClipboardCheck, ShieldCheck, BarChart3, AlertCircle, Bell, CheckCircle2 } from 'lucide-react';
+import { subscribeToFirestore, writeToFirestoreDirectly } from './firebaseClient';
 
 export default function App() {
   const lastWriteTime = useRef<number>(0);
@@ -122,6 +123,7 @@ export default function App() {
       // Extract only keys that have non-empty or updated content
       const payloadKeys = Object.keys(payload);
       if (payloadKeys.length > 0) {
+        // 1. Full-stack Express backend sync (handles container updates and audit logging)
         try {
           await fetch('/api/db', {
             method: 'POST',
@@ -133,6 +135,20 @@ export default function App() {
           });
         } catch (err) {
           console.error('Failed to push batched database updates to server:', err);
+        }
+
+        // 2. Direct-to-Firestore client-side sync (guarantees real-time work on GitHub Pages / static hosting)
+        try {
+          for (const key of payloadKeys) {
+            let actualKey = key;
+            if (key === 'activeAssets') actualKey = 'activeAssets'; // matches the map
+            const valueToWrite = payload[key];
+            if (Array.isArray(valueToWrite)) {
+              await writeToFirestoreDirectly(actualKey, valueToWrite);
+            }
+          }
+        } catch (fErr) {
+          console.warn("Direct-to-Firestore client-side push failed:", fErr);
         }
       }
     }, 50);
@@ -264,13 +280,91 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // 4. Setup real-time database updates via Server-Sent Events (SSE)
+  // 4. Setup real-time database updates via Firestore (preferred) or Server-Sent Events (SSE fallback)
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimeout: any = null;
+    let unsubscribeFirestore: (() => void) | null = null;
 
-    const connectSSE = () => {
-      console.log("Conectando ao canal de sincronização em tempo real (SSE)...");
+    const handleDatabaseUpdate = (key: string, data: any[]) => {
+      // Skip applying updates if there was a recent local write on this client to avoid race conditions
+      if (Date.now() - lastWriteTime.current < 4000) {
+        return;
+      }
+
+      switch (key) {
+        case 'users':
+          if (data && data.length > 0) {
+            setUsers(data);
+            AppStore.setUsers(data);
+            const freshUserId = localStorage.getItem('logiroute_authenticated_user_id');
+            if (freshUserId) {
+              const freshUser = data.find((u: User) => u.id === freshUserId);
+              if (freshUser) {
+                setCurrentUser(freshUser);
+              }
+            }
+          }
+          break;
+        case 'drivers':
+          setDrivers(data);
+          AppStore.setDrivers(data);
+          break;
+        case 'vehicles':
+          setVehicles(data);
+          AppStore.setVehicles(data);
+          break;
+        case 'products': {
+          const repaired = repairProductsList(data);
+          setProducts(repaired);
+          AppStore.setProducts(repaired);
+          break;
+        }
+        case 'activeAssets':
+          setActiveAssets(data);
+          AppStore.setActiveAssets(data);
+          break;
+        case 'audits':
+          setAudits(data);
+          AppStore.setAudits(data);
+          break;
+        case 'vales':
+          setVales(data);
+          AppStore.setVales(data);
+          break;
+        case 'returnForecasts':
+          setReturnForecasts(data);
+          AppStore.setReturnForecasts(data);
+          break;
+        case 'fiscalAlerts':
+          setFiscalAlerts(data);
+          AppStore.setFiscalAlerts(data);
+          break;
+        case 'importedRoutes':
+          setImportedRoutes(data);
+          AppStore.setImportedRoutes(data);
+          break;
+        case 'audit_logs':
+          setAuditLogs(data);
+          AppStore.setAuditLogs(data);
+          break;
+      }
+    };
+
+    const startSync = () => {
+      try {
+        console.log("Tentando conectar diretamente ao Firebase Firestore para sincronização em tempo real...");
+        unsubscribeFirestore = subscribeToFirestore((key, data) => {
+          handleDatabaseUpdate(key, data);
+        });
+        console.log("Inscrito com sucesso no canal de sincronização direta do Firebase Firestore.");
+        return; // Success, don't need SSE fallback
+      } catch (fErr) {
+        console.warn("Sincronização direta com Firestore falhou ou não configurada. Ativando fallback SSE...", fErr);
+      }
+
+      // Fallback: SSE connection
+      console.log("Conectando ao canal de sincronização em tempo real por servidor (SSE)...");
       eventSource = new EventSource('/api/db/events');
 
       eventSource.onmessage = (event) => {
@@ -322,14 +416,17 @@ export default function App() {
           eventSource.close();
         }
         reconnectTimeout = setTimeout(() => {
-          connectSSE();
+          startSync();
         }, 5000);
       };
     };
 
-    connectSSE();
+    startSync();
 
     return () => {
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+      }
       if (eventSource) {
         eventSource.close();
       }

@@ -6,7 +6,7 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   const isGithubActions = process.env.GITHUB_ACTIONS === 'true';
   return {
-    base: isGithubActions ? '/conferente-diurno/' : '/',
+    base: './',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
