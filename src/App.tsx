@@ -12,7 +12,7 @@ import PlatformManual from './components/PlatformManual';
 import AIAgentChat from './components/AIAgentChat';
 import FirebaseConfigView from './components/FirebaseConfigView';
 import { ClipboardCheck, ShieldCheck, BarChart3, AlertCircle, Bell, CheckCircle2 } from 'lucide-react';
-// Client-side Firebase imports removed to prefer secure server-side proxy
+import { subscribeToFirestore, writeToFirestoreDirectly } from './firebaseClient';
 
 export default function App() {
   const lastWriteTime = useRef<number>(0);
@@ -124,8 +124,9 @@ export default function App() {
       const payloadKeys = Object.keys(payload);
       if (payloadKeys.length > 0) {
         // 1. Full-stack Express backend sync (handles container updates and audit logging)
+        let backendSuccess = false;
         try {
-          await fetch('/api/db', {
+          const response = await fetch('/api/db', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -133,11 +134,28 @@ export default function App() {
               user: currentUser ? { id: currentUser.id, name: currentUser.name, role: currentUser.role } : null
             }),
           });
+          if (response.ok) {
+            backendSuccess = true;
+          }
         } catch (err) {
           console.error('Failed to push batched database updates to server:', err);
         }
 
-        // Direct client-side Firestore push removed to prefer safe server-side database serialization and prevent race conditions
+        // 2. Direct-to-Firestore client-side fallback/hybrid (guarantees real-time work on GitHub Pages / static hosting)
+        if (!backendSuccess || window.location.hostname.endsWith('github.io') || window.location.hostname.endsWith('github.pages')) {
+          try {
+            for (const key of payloadKeys) {
+              let actualKey = key;
+              if (key === 'activeAssets') actualKey = 'activeAssets';
+              const valueToWrite = payload[key];
+              if (Array.isArray(valueToWrite)) {
+                await writeToFirestoreDirectly(actualKey, valueToWrite);
+              }
+            }
+          } catch (fErr) {
+            console.warn("Direct-to-Firestore client-side push failed or bypassed:", fErr);
+          }
+        }
       }
     }, 50);
   };
@@ -286,10 +304,11 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // 4. Setup real-time database updates via Server-Sent Events (SSE)
+  // 4. Setup real-time database updates via Server-Sent Events (SSE) or client-side Firestore fallback
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimeout: any = null;
+    let unsubscribeFirestore: (() => void) | null = null;
 
     const handleDatabaseUpdate = (key: string, data: any[]) => {
       // Skip applying updates if there was a recent local write on this client to avoid race conditions
@@ -357,7 +376,23 @@ export default function App() {
     };
 
     const startSync = () => {
-      // Primary and robust real-time synchronization via SSE (Server-Sent Events)
+      // Se estiver no GitHub Pages ou hospedagem estática semelhante, se conectar diretamente ao Firestore do cliente
+      const isStaticHosting = window.location.hostname.endsWith('github.io') || window.location.hostname.endsWith('github.pages') || window.location.protocol === 'file:';
+      
+      if (isStaticHosting) {
+        try {
+          console.log("[Sync] Ambiente estático detectado (GitHub Pages). Ativando sincronização direta do cliente com Firestore...");
+          unsubscribeFirestore = subscribeToFirestore((key, data) => {
+            handleDatabaseUpdate(key, data);
+          });
+          console.log("[Sync] Sincronização direta do cliente com o Firestore estabelecida.");
+          return; // Sucesso na inicialização estática, não precisa do SSE
+        } catch (fErr) {
+          console.warn("[Sync] Falha na sincronização direta do cliente com o Firestore:", fErr);
+        }
+      }
+
+      // Conexão primária via SSE (Server-Sent Events) para ambiente de contêiner full-stack
       console.log("Conectando ao canal de sincronização em tempo real por servidor (SSE)...");
       eventSource = new EventSource('/api/db/events');
 
@@ -409,6 +444,19 @@ export default function App() {
         if (eventSource) {
           eventSource.close();
         }
+
+        // Se SSE falhar em ambiente full-stack, tentamos escutar diretamente o Firestore como plano de contingência inteligente
+        if (!unsubscribeFirestore) {
+          try {
+            console.log("[Sync Fallback] Ativando escuta direta ao Firestore no cliente como contingência...");
+            unsubscribeFirestore = subscribeToFirestore((key, data) => {
+              handleDatabaseUpdate(key, data);
+            });
+          } catch (fErr) {
+            // ignore
+          }
+        }
+
         reconnectTimeout = setTimeout(() => {
           startSync();
         }, 5000);
@@ -420,6 +468,9 @@ export default function App() {
     return () => {
       if (eventSource) {
         eventSource.close();
+      }
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
       }
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
