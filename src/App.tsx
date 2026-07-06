@@ -152,6 +152,47 @@ export default function App() {
     });
   };
 
+  // 2. Fetch latest online database from server
+  const fetchLatestServerData = async () => {
+    try {
+      const res = await fetch('/api/db');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.db) {
+          const db = data.db;
+          const freshUserId = localStorage.getItem('logiroute_authenticated_user_id');
+          if (db.users && db.users.length > 0) {
+            setUsers(db.users);
+            AppStore.setUsers(db.users);
+            if (freshUserId) {
+              const matchedUser = db.users.find((u: User) => u.id === freshUserId);
+              if (matchedUser) setCurrentUser(matchedUser);
+            }
+          }
+          if (db.drivers) { setDrivers(db.drivers); AppStore.setDrivers(db.drivers); }
+          if (db.vehicles) { setVehicles(db.vehicles); AppStore.setVehicles(db.vehicles); }
+          if (db.products) {
+            const repaired = repairProductsList(db.products);
+            setProducts(repaired);
+            AppStore.setProducts(repaired);
+          }
+          if (db.activeAssets) { setActiveAssets(db.activeAssets); AppStore.setActiveAssets(db.activeAssets); }
+          if (db.audits) { setAudits(db.audits); AppStore.setAudits(db.audits); }
+          if (db.vales) { setVales(db.vales); AppStore.setVales(db.vales); }
+          if (db.returnForecasts) { setReturnForecasts(db.returnForecasts); AppStore.setReturnForecasts(db.returnForecasts); }
+          if (db.fiscalAlerts) { setFiscalAlerts(db.fiscalAlerts); AppStore.setFiscalAlerts(db.fiscalAlerts); }
+          if (db.importedRoutes) { setImportedRoutes(db.importedRoutes); AppStore.setImportedRoutes(db.importedRoutes); }
+          if (db.audit_logs) { setAuditLogs(db.audit_logs); AppStore.setAuditLogs(db.audit_logs); }
+          if (db.firebaseConfig !== undefined) { setFirebaseConfig(db.firebaseConfig); AppStore.setFirebaseConfig(db.firebaseConfig); }
+        } else {
+          console.log("Banco de dados do servidor está em branco ou indisponível. Ignorando auto-sobreposição para segurança.");
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching server database:', err);
+    }
+  };
+
   // Load all databases from store on mount and establish server sync
   useEffect(() => {
     // 1. Initial quick load from LocalStorage
@@ -175,45 +216,6 @@ export default function App() {
     setCurrentUser(defaultUser || null);
 
     // 2. Fetch latest online database from server
-    const fetchLatestServerData = async () => {
-      try {
-        const res = await fetch('/api/db');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.db) {
-            const db = data.db;
-            if (db.users && db.users.length > 0) {
-              setUsers(db.users);
-              AppStore.setUsers(db.users);
-              if (savedUserId) {
-                const matchedUser = db.users.find((u: User) => u.id === savedUserId);
-                if (matchedUser) setCurrentUser(matchedUser);
-              }
-            }
-            if (db.drivers) { setDrivers(db.drivers); AppStore.setDrivers(db.drivers); }
-            if (db.vehicles) { setVehicles(db.vehicles); AppStore.setVehicles(db.vehicles); }
-            if (db.products) {
-              const repaired = repairProductsList(db.products);
-              setProducts(repaired);
-              AppStore.setProducts(repaired);
-            }
-            if (db.activeAssets) { setActiveAssets(db.activeAssets); AppStore.setActiveAssets(db.activeAssets); }
-            if (db.audits) { setAudits(db.audits); AppStore.setAudits(db.audits); }
-            if (db.vales) { setVales(db.vales); AppStore.setVales(db.vales); }
-            if (db.returnForecasts) { setReturnForecasts(db.returnForecasts); AppStore.setReturnForecasts(db.returnForecasts); }
-            if (db.fiscalAlerts) { setFiscalAlerts(db.fiscalAlerts); AppStore.setFiscalAlerts(db.fiscalAlerts); }
-            if (db.importedRoutes) { setImportedRoutes(db.importedRoutes); AppStore.setImportedRoutes(db.importedRoutes); }
-            if (db.audit_logs) { setAuditLogs(db.audit_logs); AppStore.setAuditLogs(db.audit_logs); }
-            if (db.firebaseConfig !== undefined) { setFirebaseConfig(db.firebaseConfig); AppStore.setFirebaseConfig(db.firebaseConfig); }
-          } else {
-            console.log("Banco de dados do servidor está em branco ou indisponível. Ignorando auto-sobreposição para segurança.");
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching server database:', err);
-      }
-    };
-
     fetchLatestServerData();
 
     // 3. Setup periodic backup polling every 20 seconds
@@ -454,6 +456,7 @@ export default function App() {
     } else if (user.role === 'monitoramento') {
       setActiveTab('monitoramento_view');
     }
+    fetchLatestServerData();
   };
 
   const handleLoginSuccess = (user: User) => {
@@ -472,6 +475,7 @@ export default function App() {
     } else if (user.role === 'monitoramento') {
       setActiveTab('monitoramento_view');
     }
+    fetchLatestServerData();
   };
 
   const handleLogout = () => {
