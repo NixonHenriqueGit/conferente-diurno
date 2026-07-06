@@ -138,6 +138,32 @@ export default function App() {
     }, 50);
   };
 
+  // Flush any pending batched database updates to server immediately and wait for completion
+  const flushPendingUpdates = async () => {
+    if (pushTimeoutRef.current) {
+      clearTimeout(pushTimeoutRef.current);
+      pushTimeoutRef.current = null;
+    }
+
+    const payload = { ...pendingUpdatesRef.current };
+    const payloadKeys = Object.keys(payload);
+    if (payloadKeys.length > 0) {
+      pendingUpdatesRef.current = {}; // Clear accumulator
+      try {
+        await fetch('/api/db', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            db: payload,
+            user: currentUser ? { id: currentUser.id, name: currentUser.name, role: currentUser.role } : null
+          }),
+        });
+      } catch (err) {
+        console.error('Failed to flush database updates:', err);
+      }
+    }
+  };
+
   // Helper to repair missing or broken product descriptions
   const repairProductsList = (list: Product[]) => {
     if (!list) return [];
@@ -154,6 +180,7 @@ export default function App() {
 
   // 2. Fetch latest online database from server
   const fetchLatestServerData = async () => {
+    await flushPendingUpdates();
     try {
       const res = await fetch('/api/db');
       if (res.ok) {
@@ -218,7 +245,7 @@ export default function App() {
     // 2. Fetch latest online database from server
     fetchLatestServerData();
 
-    // 3. Setup periodic backup polling every 20 seconds
+    // 3. Setup periodic backup polling every 5 seconds
     const interval = setInterval(async () => {
       try {
         // Skip polling if there was a recent write on this client to avoid race conditions
@@ -261,7 +288,7 @@ export default function App() {
       } catch (err) {
         console.error('Polling database sync error:', err);
       }
-    }, 20000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
@@ -444,7 +471,8 @@ export default function App() {
   };
 
   // Switch tabs when current user role changes
-  const handleUserChange = (user: User) => {
+  const handleUserChange = async (user: User) => {
+    await flushPendingUpdates();
     setCurrentUser(user);
     localStorage.setItem('logiroute_authenticated_user_id', user.id);
     if (user.role === 'conferente') {
@@ -459,7 +487,8 @@ export default function App() {
     fetchLatestServerData();
   };
 
-  const handleLoginSuccess = (user: User) => {
+  const handleLoginSuccess = async (user: User) => {
+    await flushPendingUpdates();
     setCurrentUser(user);
     setIsAuthenticated(true);
     localStorage.setItem('logiroute_is_authenticated', 'true');
@@ -478,7 +507,8 @@ export default function App() {
     fetchLatestServerData();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await flushPendingUpdates();
     setIsAuthenticated(false);
     localStorage.removeItem('logiroute_is_authenticated');
     localStorage.removeItem('logiroute_authenticated_user_id');
