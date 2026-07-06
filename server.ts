@@ -63,7 +63,7 @@ const FIREBASE_CONFIG_PATH = path.join(process.cwd(), "firebase-applet-config.js
 const DEFAULT_FIREBASE_CONFIG = {
   projectId: "armazemfacil-b2292",
   appId: "1:688234941301:web:153e2ad3f634379fe3213c",
-  apiKey: "AIzaSyA_ykhJGRklDbPuDNYooMlVvB2DeVzp2VE",
+  apiKey: "AIzaSyA_ykhJGRkIDbPuDNYooMIVvB2DeVzp2VE",
   authDomain: "armazemfacil-b2292.firebaseapp.com",
   firestoreDatabaseId: "(default)",
   storageBucket: "armazemfacil-b2292.appspot.com",
@@ -84,6 +84,136 @@ let firestoreLoadedSuccessfully = false;
 
 // Keep track of connected clients for Server-Sent Events (SSE) real-time synchronization
 let clients: any[] = [];
+
+let activeUnsubscribeAppState: (() => void) | null = null;
+let activeUnsubscribePhotos: (() => void) | null = null;
+
+function setupFirestoreListeners() {
+  if (!firestoreDb) return;
+
+  // Clean up any existing listeners first
+  if (activeUnsubscribeAppState) {
+    try {
+      activeUnsubscribeAppState();
+    } catch (e) {
+      console.warn("Erro ao desinscrever listener antigo de app_state:", e);
+    }
+    activeUnsubscribeAppState = null;
+  }
+  if (activeUnsubscribePhotos) {
+    try {
+      activeUnsubscribePhotos();
+    } catch (e) {
+      console.warn("Erro ao desinscrever listener antigo de photos:", e);
+    }
+    activeUnsubscribePhotos = null;
+  }
+
+  console.log("Iniciando listeners em tempo real do Firestore no servidor...");
+
+  try {
+    const colRef = collection(firestoreDb, "app_state");
+    activeUnsubscribeAppState = onSnapshot(colRef, (snapshot) => {
+      let hasChanges = false;
+      if (!dbCache) {
+        dbCache = {};
+      }
+
+      snapshot.docChanges().forEach((change) => {
+        const key = change.doc.id;
+        if (DB_KEYS.includes(key)) {
+          const docData = change.doc.data();
+          const dataList = docData.data || [];
+
+          if (JSON.stringify(dbCache[key]) !== JSON.stringify(dataList)) {
+            console.log(`[Firestore Live Listener] Atualização de chave detectada na nuvem: '${key}'`);
+            dbCache[key] = dataList;
+            hasChanges = true;
+          }
+        }
+      });
+
+      if (hasChanges) {
+        // Salva o estado consolidado no arquivo local database.json
+        fs.writeFile(DB_FILE_PATH, JSON.stringify(dbCache, null, 2), "utf-8")
+          .then(() => {
+            console.log("[Firestore Live Listener] database.json atualizado via alterações na nuvem.");
+          })
+          .catch((err) => {
+            console.error("[Firestore Live Listener] Erro ao salvar database.json:", err);
+          });
+
+        // Transmite em tempo real para todos os clientes conectados via SSE (celular, tablet, pc)
+        if (clients && clients.length > 0) {
+          const payloadStr = JSON.stringify({ type: "update", db: dbCache });
+          clients.forEach(client => {
+            try {
+              client.res.write(`data: ${payloadStr}\n\n`);
+            } catch (err) {
+              // Conexão do cliente fechada
+            }
+          });
+        }
+      }
+    }, (error) => {
+      console.error("Erro no listener em tempo real de app_state:", error);
+    });
+
+    // Ouvir também a coleção de fotos para sincronização em tempo real
+    const photosColRef = collection(firestoreDb, "photos");
+    activeUnsubscribePhotos = onSnapshot(photosColRef, (snapshot) => {
+      let hasChanges = false;
+      if (!dbCache) dbCache = {};
+      if (!dbCache.photos) dbCache.photos = [];
+
+      snapshot.docChanges().forEach((change) => {
+        const photoData = change.doc.data();
+        const photoId = change.doc.id;
+
+        if (change.type === "added" || change.type === "modified") {
+          const index = dbCache.photos.findIndex((p: any) => p.id === photoId);
+          if (index > -1) {
+            if (JSON.stringify(dbCache.photos[index]) !== JSON.stringify(photoData)) {
+              dbCache.photos[index] = photoData;
+              hasChanges = true;
+            }
+          } else {
+            dbCache.photos.push(photoData);
+            hasChanges = true;
+          }
+        } else if (change.type === "removed") {
+          const index = dbCache.photos.findIndex((p: any) => p.id === photoId);
+          if (index > -1) {
+            dbCache.photos.splice(index, 1);
+            hasChanges = true;
+          }
+        }
+      });
+
+      if (hasChanges) {
+        fs.writeFile(DB_FILE_PATH, JSON.stringify(dbCache, null, 2), "utf-8")
+          .then(() => {
+            console.log("[Firestore Live Listener] database.json de fotos atualizado via nuvem.");
+          })
+          .catch(() => {});
+
+        if (clients && clients.length > 0) {
+          const payloadStr = JSON.stringify({ type: "update", db: dbCache });
+          clients.forEach(client => {
+            try {
+              client.res.write(`data: ${payloadStr}\n\n`);
+            } catch (err) {}
+          });
+        }
+      }
+    }, (error) => {
+      console.error("Erro no listener em tempo real de fotos:", error);
+    });
+
+  } catch (err) {
+    console.error("Erro ao configurar listeners do Firestore no servidor:", err);
+  }
+}
 
 // Helper to initialize Firebase App and Firestore
 async function initFirebase() {
@@ -246,68 +376,6 @@ function generateAuditLogs(oldDb: any, newDb: any, user: any) {
   return logs;
 }
 
-// Keep track of active Firestore real-time listeners on the server to prevent duplicate subscriptions on configuration updates
-let firestoreListeners: (() => void)[] = [];
-
-// Helper to establish real-time Firestore listeners on the server side
-function setupFirestoreListeners() {
-  if (!firestoreDb) return;
-  
-  // Clean up any previous listeners to prevent memory leaks and redundant file writes
-  if (firestoreListeners.length > 0) {
-    console.log("[Firestore Listener] Removendo escutadores em tempo real anteriores...");
-    firestoreListeners.forEach(unsub => {
-      try {
-        unsub();
-      } catch (err) {
-        // ignore
-      }
-    });
-    firestoreListeners = [];
-  }
-
-  console.log("[Firestore Listener] Iniciando escutas real-time do Firestore no servidor para todas as tabelas...");
-  DB_KEYS.forEach((key) => {
-    const docRef = doc(firestoreDb, "app_state", key);
-    const unsub = onSnapshot(docRef, async (snap) => {
-      if (snap.exists()) {
-        const incoming = snap.data().data || [];
-        
-        // Skip updating if the incoming Firestore data is identical to the in-memory cache to prevent infinite loops
-        if (JSON.stringify(dbCache?.[key]) !== JSON.stringify(incoming)) {
-          console.log(`[Firestore Listener] Atualização externa detectada no Firestore para a chave '${key}'. Sincronizando...`);
-          if (!dbCache) dbCache = {};
-          dbCache[key] = incoming;
-          
-          // Persist the consolidated state locally to keep the container disk cache warm
-          try {
-            const tempPath = `${DB_FILE_PATH}.tmp`;
-            await fs.writeFile(tempPath, JSON.stringify(dbCache, null, 2), "utf-8");
-            await fs.rename(tempPath, DB_FILE_PATH);
-          } catch (writeErr: any) {
-            console.error(`[Firestore Listener] Erro ao salvar estado local para '${key}':`, writeErr?.message || writeErr);
-          }
-          
-          // Instantly broadcast the updated state to all connected browser clients via Server-Sent Events (SSE)
-          if (clients && clients.length > 0) {
-            const payloadStr = JSON.stringify({ type: "update", db: dbCache });
-            clients.forEach(client => {
-              try {
-                client.res.write(`data: ${payloadStr}\n\n`);
-              } catch (err) {
-                // Client connection closed; ignore
-              }
-            });
-          }
-        }
-      }
-    }, (err) => {
-      console.error(`[Firestore Listener] Erro no canal de escuta para a chave '${key}':`, err?.message || err);
-    });
-    firestoreListeners.push(unsub);
-  });
-}
-
 // Helper to read DB from file/Firestore once on startup and establish a robust cache
 async function loadDatabaseOnStartup() {
   await initFirebase();
@@ -333,16 +401,8 @@ async function loadDatabaseOnStartup() {
           try {
             const snap = await getDoc(docRef);
             if (snap.exists()) {
-              const firestoreData = snap.data().data || [];
-              // SAFEGUARD: Se o Firestore retornar um array vazio mas o banco local contiver dados ativos,
-              // preservamos os dados locais do container para evitar perda de dados por inicialização incorreta do Firestore.
-              if (firestoreData.length === 0 && localDb[key] && localDb[key].length > 0) {
-                console.log(`[Startup Safeguard] A chave '${key}' está vazia no Firestore mas contém ${localDb[key].length} registros locais. Preservando banco local e agendando gravação na nuvem.`);
-                absentKeys.add(key); // Marca como ausente para que o servidor salve os registros locais de volta no Firestore
-              } else {
-                dbCache[key] = firestoreData;
-                updatedKeys.add(key);
-              }
+              dbCache[key] = snap.data().data || [];
+              updatedKeys.add(key);
             } else {
               absentKeys.add(key);
             }
@@ -392,7 +452,7 @@ async function loadDatabaseOnStartup() {
         console.log("Cache físico do container atualizado com os dados do Firestore com sucesso.");
         
         firestoreLoadedSuccessfully = true;
-        setupFirestoreListeners(); // Ativa os escutadores real-time no servidor
+        setupFirestoreListeners();
         return; // Success!
       } catch (err) {
         console.error(`Falha na tentativa de carregar Firestore (Restam ${retries - 1} tentativas):`, err);
@@ -1058,12 +1118,8 @@ Instruções para Resposta:
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use('/conferencia', express.static(distPath));
-    app.use('/conferente-diurno', express.static(distPath));
     app.use(express.static(distPath));
     app.get('/conferencia/*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-    app.get('/conferente-diurno/*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
     app.get('*', (req, res) => {

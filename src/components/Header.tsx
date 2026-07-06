@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, UserRole, FiscalAlert } from '../types';
-import BrandLogo from './BrandLogo';
 import { 
   Shield, User as UserIcon, Truck, CheckCircle, BarChart3, Settings, 
   LogOut, FileSpreadsheet, Bell, Check, Clock, AlertCircle, FileText,
@@ -90,10 +89,16 @@ export default function Header({
           {/* Logo */}
           <div 
             onClick={handleLogoClick}
-            className="cursor-pointer hover:opacity-90 transition-all"
+            className="flex items-center space-x-3 cursor-pointer hover:opacity-90 transition-all"
             id="header_logo_btn"
           >
-            <BrandLogo variant="header" />
+            <div className="bg-amber-500/10 p-2 rounded-lg flex items-center justify-center border border-amber-500/20 w-10 h-10 shadow-inner">
+              <Truck className="h-5 w-5 text-amber-500" />
+            </div>
+            <div>
+              <span className="font-sans font-bold text-sm sm:text-base tracking-tight block text-white uppercase">Pau Brasil Guarabira</span>
+              <span className="font-mono text-[9px] sm:text-xxs tracking-widest text-amber-500 uppercase block leading-none">Retorno de Rota</span>
+            </div>
           </div>
 
           {/* Navigation / Mode Tabs */}

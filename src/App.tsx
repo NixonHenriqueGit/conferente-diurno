@@ -12,7 +12,6 @@ import PlatformManual from './components/PlatformManual';
 import AIAgentChat from './components/AIAgentChat';
 import FirebaseConfigView from './components/FirebaseConfigView';
 import { ClipboardCheck, ShieldCheck, BarChart3, AlertCircle, Bell, CheckCircle2 } from 'lucide-react';
-import { subscribeToFirestore, writeToFirestoreDirectly } from './firebaseClient';
 
 export default function App() {
   const lastWriteTime = useRef<number>(0);
@@ -123,10 +122,8 @@ export default function App() {
       // Extract only keys that have non-empty or updated content
       const payloadKeys = Object.keys(payload);
       if (payloadKeys.length > 0) {
-        // 1. Full-stack Express backend sync (handles container updates and audit logging)
-        let backendSuccess = false;
         try {
-          const response = await fetch('/api/db', {
+          await fetch('/api/db', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -134,27 +131,8 @@ export default function App() {
               user: currentUser ? { id: currentUser.id, name: currentUser.name, role: currentUser.role } : null
             }),
           });
-          if (response.ok) {
-            backendSuccess = true;
-          }
         } catch (err) {
           console.error('Failed to push batched database updates to server:', err);
-        }
-
-        // 2. Direct-to-Firestore client-side fallback/hybrid (guarantees real-time work on GitHub Pages / static hosting)
-        if (!backendSuccess || window.location.hostname.endsWith('github.io') || window.location.hostname.endsWith('github.pages')) {
-          try {
-            for (const key of payloadKeys) {
-              let actualKey = key;
-              if (key === 'activeAssets') actualKey = 'activeAssets';
-              const valueToWrite = payload[key];
-              if (Array.isArray(valueToWrite)) {
-                await writeToFirestoreDirectly(actualKey, valueToWrite);
-              }
-            }
-          } catch (fErr) {
-            console.warn("Direct-to-Firestore client-side push failed or bypassed:", fErr);
-          }
         }
       }
     }, 50);
@@ -190,28 +168,6 @@ export default function App() {
     setImportedRoutes(AppStore.getImportedRoutes());
     setAuditLogs(AppStore.getAuditLogs());
     setFirebaseConfig(AppStore.getFirebaseConfig());
-
-    // Fetch Firebase Config from server to ensure perfect sync for all roles (including conferentes)
-    const fetchServerFirebaseConfig = async () => {
-      try {
-        const res = await fetch('/api/firebase/config');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.config) {
-            setFirebaseConfig(data.config);
-            AppStore.setFirebaseConfig(data.config);
-            console.log("Firebase configuration successfully synchronized from server on startup.");
-          }
-        }
-      } catch (err: any) {
-        if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message?.includes('fetch'))) {
-          console.warn('Configuração do Firebase temporariamente inacessível (servidor offline/reiniciando)...');
-        } else {
-          console.error('Error fetching Firebase config from server on startup:', err);
-        }
-      }
-    };
-    fetchServerFirebaseConfig();
 
     // Check persistent user ID if authenticated
     const savedUserId = localStorage.getItem('logiroute_authenticated_user_id');
@@ -253,12 +209,8 @@ export default function App() {
             console.log("Banco de dados do servidor está em branco ou indisponível. Ignorando auto-sobreposição para segurança.");
           }
         }
-      } catch (err: any) {
-        if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message?.includes('fetch'))) {
-          console.warn('Banco de dados temporariamente offline ou reiniciando (startup)...');
-        } else {
-          console.error('Error fetching server database:', err);
-        }
+      } catch (err) {
+        console.error('Error fetching server database:', err);
       }
     };
 
@@ -304,108 +256,21 @@ export default function App() {
             if (db.firebaseConfig !== undefined) { setFirebaseConfig(db.firebaseConfig); AppStore.setFirebaseConfig(db.firebaseConfig); }
           }
         }
-      } catch (err: any) {
-        if (err instanceof TypeError && (err.message === 'Failed to fetch' || err.message?.includes('fetch'))) {
-          console.warn('Banco de dados temporariamente offline ou reiniciando (polling)...');
-        } else {
-          console.error('Polling database sync error:', err);
-        }
+      } catch (err) {
+        console.error('Polling database sync error:', err);
       }
     }, 20000);
 
     return () => clearInterval(interval);
   }, []);
 
-  // 4. Setup real-time database updates via Server-Sent Events (SSE) or client-side Firestore fallback
+  // 4. Setup real-time database updates via Server-Sent Events (SSE)
   useEffect(() => {
     let eventSource: EventSource | null = null;
     let reconnectTimeout: any = null;
-    let unsubscribeFirestore: (() => void) | null = null;
 
-    const handleDatabaseUpdate = (key: string, data: any[]) => {
-      // Skip applying updates if there was a recent local write on this client to avoid race conditions
-      if (Date.now() - lastWriteTime.current < 4000) {
-        return;
-      }
-
-      switch (key) {
-        case 'users':
-          if (data && data.length > 0) {
-            setUsers(data);
-            AppStore.setUsers(data);
-            const freshUserId = localStorage.getItem('logiroute_authenticated_user_id');
-            if (freshUserId) {
-              const freshUser = data.find((u: User) => u.id === freshUserId);
-              if (freshUser) {
-                setCurrentUser(freshUser);
-              }
-            }
-          }
-          break;
-        case 'drivers':
-          setDrivers(data);
-          AppStore.setDrivers(data);
-          break;
-        case 'vehicles':
-          setVehicles(data);
-          AppStore.setVehicles(data);
-          break;
-        case 'products': {
-          const repaired = repairProductsList(data);
-          setProducts(repaired);
-          AppStore.setProducts(repaired);
-          break;
-        }
-        case 'activeAssets':
-          setActiveAssets(data);
-          AppStore.setActiveAssets(data);
-          break;
-        case 'audits':
-          setAudits(data);
-          AppStore.setAudits(data);
-          break;
-        case 'vales':
-          setVales(data);
-          AppStore.setVales(data);
-          break;
-        case 'returnForecasts':
-          setReturnForecasts(data);
-          AppStore.setReturnForecasts(data);
-          break;
-        case 'fiscalAlerts':
-          setFiscalAlerts(data);
-          AppStore.setFiscalAlerts(data);
-          break;
-        case 'importedRoutes':
-          setImportedRoutes(data);
-          AppStore.setImportedRoutes(data);
-          break;
-        case 'audit_logs':
-          setAuditLogs(data);
-          AppStore.setAuditLogs(data);
-          break;
-      }
-    };
-
-    const startSync = () => {
-      // Se estiver no GitHub Pages ou hospedagem estática semelhante, se conectar diretamente ao Firestore do cliente
-      const isStaticHosting = window.location.hostname.endsWith('github.io') || window.location.hostname.endsWith('github.pages') || window.location.protocol === 'file:';
-      
-      if (isStaticHosting) {
-        try {
-          console.log("[Sync] Ambiente estático detectado (GitHub Pages). Ativando sincronização direta do cliente com Firestore...");
-          unsubscribeFirestore = subscribeToFirestore((key, data) => {
-            handleDatabaseUpdate(key, data);
-          });
-          console.log("[Sync] Sincronização direta do cliente com o Firestore estabelecida.");
-          return; // Sucesso na inicialização estática, não precisa do SSE
-        } catch (fErr) {
-          console.warn("[Sync] Falha na sincronização direta do cliente com o Firestore:", fErr);
-        }
-      }
-
-      // Conexão primária via SSE (Server-Sent Events) para ambiente de contêiner full-stack
-      console.log("Conectando ao canal de sincronização em tempo real por servidor (SSE)...");
+    const connectSSE = () => {
+      console.log("Conectando ao canal de sincronização em tempo real (SSE)...");
       eventSource = new EventSource('/api/db/events');
 
       eventSource.onmessage = (event) => {
@@ -456,39 +321,23 @@ export default function App() {
         if (eventSource) {
           eventSource.close();
         }
-
-        // Se SSE falhar em ambiente full-stack, tentamos escutar diretamente o Firestore como plano de contingência inteligente
-        if (!unsubscribeFirestore) {
-          try {
-            console.log("[Sync Fallback] Ativando escuta direta ao Firestore no cliente como contingência...");
-            unsubscribeFirestore = subscribeToFirestore((key, data) => {
-              handleDatabaseUpdate(key, data);
-            });
-          } catch (fErr) {
-            // ignore
-          }
-        }
-
         reconnectTimeout = setTimeout(() => {
-          startSync();
+          connectSSE();
         }, 5000);
       };
     };
 
-    startSync();
+    connectSSE();
 
     return () => {
       if (eventSource) {
         eventSource.close();
       }
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
-      }
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
       }
     };
-  }, [firebaseConfig]);
+  }, []);
 
   // Real-time synchronization across tabs of the SAME browser
   useEffect(() => {

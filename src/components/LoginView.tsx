@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { ShieldCheck, Truck, Lock, User as UserIcon, LogIn, HelpCircle } from 'lucide-react';
-import BrandLogo from './BrandLogo';
+import logoImg from '../assets/images/pau_brasil_logo_1783008800955.jpg';
 
 interface LoginViewProps {
   users: User[];
@@ -58,7 +58,17 @@ export default function LoginView({ users, onLoginSuccess }: LoginViewProps) {
         <div className="bg-slate-50 border-b border-slate-100 p-8 text-center flex flex-col items-center">
           
           {/* PAU BRASIL DISTRIBUIDORA AMBEV - LOGO AND TEXT */}
-          <BrandLogo variant="login" className="mb-4" />
+          <div className="mb-4 text-center flex flex-col items-center" id="pau_brasil_logo">
+            <div className="w-20 h-20 bg-white p-1 rounded-xl shadow-md border border-slate-200 mb-3 overflow-hidden flex items-center justify-center">
+              <img src={logoImg} alt="Pau Brasil Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+            </div>
+            <div className="font-sans font-black tracking-tight text-3xl flex flex-col items-center justify-center leading-none">
+              <span className="text-[#0f35a9]">PAU BRASIL</span>
+              <span className="text-xxs uppercase font-extrabold tracking-widest text-[#0f35a9]/80 mt-1.5 block">
+                distribuidora <span className="text-amber-500 font-black">ambev</span>
+              </span>
+            </div>
+          </div>
 
           <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider font-mono">
             RETORNO DE ROTA PAU BRASIL GUARABIRA
